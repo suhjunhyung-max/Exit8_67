@@ -1,0 +1,14 @@
+{
+  "name": "exit67",
+  "version": "1.0.0",
+  "description": "EXIT 67 - 3D Horror Arcade Web Game",
+  "main": "index.html",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}

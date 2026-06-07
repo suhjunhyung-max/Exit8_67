@@ -1,0 +1,1129 @@
+// EXIT 67 - Main Game Engine
+let scene, camera, renderer;
+let activeAnomalyId = 0;
+let exitNumber = 0;
+let gameState = 'menu'; // menu, playing, paused, gameover, victory
+let playerPos = new THREE.Vector3(0, 0, -1.2);
+let cameraRotation = { yaw: 0, pitch: 0 };
+let keys = {};
+let stepTimer = 0;
+let flashlightOn = false;
+
+// Movement speeds
+const walkSpeed = 2.4;
+const runSpeed = 4.4;
+const playerHeight = 1.6;
+
+// Raycasting for interaction
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2(0, 0); // center screen
+
+// References to scene objects
+const elements = {
+    floor: null,
+    floorMaterial: null,
+    ceiling: null,
+    leftWall: null,
+    rightWall: null,
+    endWalls: [],
+    posters: [],
+    posterMaterials: [],
+    rightDoors: [],
+    doorFront: null,
+    doorBack: null,
+    doorFrontTextMesh: null,
+    doorBackTextMesh: null,
+    doorFrontTextMaterial: null,
+    doorBackTextMaterial: null,
+    exitSign: null,
+    exitSignMaterial: null,
+    hydrant: null,
+    hydrantParts: [],
+    lights: [],
+    flashlight: null,
+    flashlightOn: false
+};
+
+// Start the game
+function initGame() {
+    setupThreeJS();
+    setupEventListeners();
+    generateScene();
+    updateHUD();
+    
+    // Hide loading / show start menu
+    document.getElementById('menu-start').classList.add('active');
+    
+    animate(0);
+}
+
+function setupThreeJS() {
+    const container = document.getElementById('canvas-container');
+    
+    // Create Scene
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x050508);
+    scene.fog = new THREE.FogExp2(0x050508, 0.05);
+
+    // Create Camera
+    camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 200);
+    camera.rotation.order = 'YXZ'; // FPS looking style
+    scene.add(camera);
+
+    // Create Renderer
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    container.appendChild(renderer.domElement);
+
+    // Initial Flashlight (attached to camera)
+    const flash = new THREE.SpotLight(0xffffff, 0, 25, Math.PI / 5, 0.5, 1);
+    flash.castShadow = true;
+    flash.shadow.mapSize.width = 1024;
+    flash.shadow.mapSize.height = 1024;
+    camera.add(flash);
+    camera.add(flash.target);
+    flash.target.position.set(0, 0.2, -1);
+    elements.flashlight = flash;
+}
+
+function setupEventListeners() {
+    window.addEventListener('resize', onWindowResize);
+    
+    // Keyboard inputs
+    window.addEventListener('keydown', (e) => {
+        const key = e.key.toLowerCase();
+        keys[key] = true;
+        
+        if (e.key === ' ' || e.key === 'Spacebar') {
+            e.preventDefault(); // Prevent space from clicking focused buttons or scrolling
+        }
+        
+        if (key === 'x' && gameState === 'playing') {
+            toggleFlashlight();
+        }
+        
+        if (e.key === 'Escape' && gameState === 'playing') {
+            togglePauseMenu();
+        }
+    });
+    
+    window.addEventListener('keyup', (e) => {
+        keys[e.key.toLowerCase()] = false;
+    });
+
+    // Mouse looking via Pointer Lock API
+    const container = document.getElementById('canvas-container');
+    
+    container.addEventListener('click', () => {
+        if (gameState === 'playing' && document.pointerLockElement !== container) {
+            container.requestPointerLock();
+        }
+    });
+
+    document.addEventListener('pointerlockchange', () => {
+        if (document.pointerLockElement !== container && gameState === 'playing') {
+            // Pause if user exited pointer lock manually
+            togglePauseMenu();
+        }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (document.pointerLockElement !== container || gameState !== 'playing') return;
+        
+        const sensitivity = 0.002;
+        cameraRotation.yaw -= e.movementX * sensitivity;
+        cameraRotation.pitch -= e.movementY * sensitivity;
+        
+        // Clamp pitch to avoid turning upside down (unless reverse gravity is active, which is handled at rotation display level)
+        cameraRotation.pitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, cameraRotation.pitch));
+        
+        camera.rotation.x = cameraRotation.pitch;
+        camera.rotation.y = cameraRotation.yaw;
+    });
+
+    // Handle mouse click for opening doors
+    window.addEventListener('click', (e) => {
+        if (gameState !== 'playing' || document.pointerLockElement !== container) return;
+        
+        // Raycast from screen center
+        raycaster.setFromCamera(mouse, camera);
+        
+        // We only care about front and back doors
+        const interactables = [];
+        if (elements.doorFront) interactables.push(elements.doorFront);
+        if (elements.doorBack) interactables.push(elements.doorBack);
+        
+        // Allow clicking open first door for keyhole anomaly
+        if (activeAnomalyId === 38 && elements.rightDoors[0]) {
+            interactables.push(elements.rightDoors[0]);
+        }
+
+        const intersects = raycaster.intersectObjects(interactables, true);
+        if (intersects.length > 0) {
+            // Find parent door mesh
+            let hitObj = intersects[0].object;
+            while (hitObj.parent && hitObj.name !== 'door_front' && hitObj.name !== 'door_back' && hitObj.name !== 'door_right_0') {
+                hitObj = hitObj.parent;
+            }
+            
+            const dist = playerPos.distanceTo(hitObj.position);
+            if (dist < 4.0) {
+                if (hitObj.name === 'door_front') {
+                    interactWithFrontDoor();
+                } else if (hitObj.name === 'door_back') {
+                    interactWithBackDoor();
+                } else if (hitObj.name === 'door_right_0' && activeAnomalyId === 38) {
+                    // Clicking the open keyhole door triggers gameover
+                    triggerGameOver('red_light');
+                }
+            }
+        }
+    });
+
+    // Button clicks in menus
+    document.getElementById('btn-start').addEventListener('click', startGame);
+    document.getElementById('btn-resume').addEventListener('click', resumeGame);
+    document.getElementById('btn-restart-pause').addEventListener('click', restartGame);
+    document.getElementById('btn-restart-gameover').addEventListener('click', restartGame);
+    document.getElementById('btn-restart-victory').addEventListener('click', restartGame);
+}
+
+function onWindowResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+function toggleFlashlight() {
+    flashlightOn = !flashlightOn;
+    elements.flashlightOn = flashlightOn;
+    elements.flashlight.intensity = flashlightOn ? 1.5 : 0;
+    
+    // Low battery anomaly overrides
+    if (activeAnomalyId === 52) {
+        elements.flashlight.intensity = flashlightOn ? 0.25 : 0;
+    }
+    
+    window.gameAudio.playFlashlightClick();
+    updateHUD();
+}
+
+function togglePauseMenu() {
+    if (gameState === 'playing') {
+        gameState = 'paused';
+        document.exitPointerLock();
+        document.getElementById('menu-pause').classList.add('active');
+    }
+}
+
+function resumeGame() {
+    if (document.activeElement) document.activeElement.blur();
+    gameState = 'playing';
+    document.getElementById('menu-pause').classList.remove('active');
+    document.getElementById('canvas-container').requestPointerLock();
+}
+
+function startGame() {
+    if (document.activeElement) document.activeElement.blur();
+    // Initialize procedural audio context
+    window.gameAudio.init();
+    
+    gameState = 'playing';
+    document.getElementById('menu-start').classList.remove('active');
+    document.getElementById('canvas-container').requestPointerLock();
+    
+    resetLevelState(0); // spawn at exit 0
+}
+
+function restartGame() {
+    if (document.activeElement) document.activeElement.blur();
+    window.gameAudio.init();
+    
+    document.getElementById('menu-gameover').classList.remove('active');
+    document.getElementById('menu-victory').classList.remove('active');
+    document.getElementById('menu-pause').classList.remove('active');
+    document.getElementById('red-gameover-overlay').classList.remove('active');
+    document.getElementById('handprint-jumpscare').style.display = 'none';
+    document.querySelector('.screamer-hand').classList.remove('active');
+    
+    exitNumber = 0;
+    gameState = 'playing';
+    document.getElementById('canvas-container').requestPointerLock();
+    
+    resetLevelState(0);
+}
+
+function updateHUD() {
+    document.getElementById('val-exit').innerText = exitNumber;
+    document.getElementById('val-flashlight').innerText = flashlightOn ? "ON" : "OFF";
+    document.getElementById('val-flashlight').style.color = flashlightOn ? "#00ffcc" : "#94a3b8";
+}
+
+// Visual layout generation
+function generateScene() {
+    // Clear old elements if rebuilding
+    elements.posters.forEach(p => scene.remove(p));
+    elements.rightDoors.forEach(d => scene.remove(d));
+    if (elements.endWalls) {
+        elements.endWalls.forEach(w => scene.remove(w));
+    }
+    elements.posters = [];
+    elements.posterMaterials = [];
+    elements.rightDoors = [];
+    elements.endWalls = [];
+    
+    if (elements.floor) { scene.remove(elements.floor); elements.floor = null; }
+    if (elements.ceiling) { scene.remove(elements.ceiling); elements.ceiling = null; }
+    if (elements.leftWall) { scene.remove(elements.leftWall); elements.leftWall = null; }
+    if (elements.rightWall) { scene.remove(elements.rightWall); elements.rightWall = null; }
+    if (elements.doorFront) { scene.remove(elements.doorFront); elements.doorFront = null; }
+    if (elements.doorBack) { scene.remove(elements.doorBack); elements.doorBack = null; }
+    if (elements.doorFrontTextMesh) { scene.remove(elements.doorFrontTextMesh); elements.doorFrontTextMesh = null; }
+    if (elements.doorBackTextMesh) { scene.remove(elements.doorBackTextMesh); elements.doorBackTextMesh = null; }
+    if (elements.exitSign) { scene.remove(elements.exitSign); elements.exitSign = null; }
+    if (elements.hydrant) { scene.remove(elements.hydrant); elements.hydrant = null; elements.hydrantParts = []; }
+    
+    elements.lights.forEach(l => scene.remove(l));
+    elements.lights = [];
+
+    // Decide corridor dimensions
+    const length = (activeAnomalyId === 15) ? 167 : 30;
+    const width = 4;
+    const height = 3;
+
+    // Materials
+    // Procedural concrete texture for walls
+    const wallCanvas = document.createElement('canvas');
+    wallCanvas.width = 256; wallCanvas.height = 256;
+    const wCtx = wallCanvas.getContext('2d');
+    wCtx.fillStyle = '#aaaaaa';
+    wCtx.fillRect(0,0,256,256);
+    wCtx.strokeStyle = '#888888';
+    wCtx.lineWidth = 1;
+    wCtx.strokeRect(0,0,256,256);
+    const wallTex = new THREE.CanvasTexture(wallCanvas);
+    wallTex.wrapS = THREE.RepeatWrapping;
+    wallTex.wrapT = THREE.RepeatWrapping;
+    wallTex.repeat.set(length / 2, height / 2);
+
+    const wallMaterial = new THREE.MeshStandardMaterial({
+        map: wallTex,
+        roughness: 0.8,
+        metalness: 0.1
+    });
+
+    const woodFloorCanvas = AnomalySystem.drawWoodFloor();
+    const woodFloorTex = new THREE.CanvasTexture(woodFloorCanvas);
+    woodFloorTex.wrapS = THREE.RepeatWrapping;
+    woodFloorTex.wrapT = THREE.RepeatWrapping;
+    woodFloorTex.repeat.set(4, length);
+
+    const floorMaterial = new THREE.MeshStandardMaterial({
+        map: woodFloorTex,
+        roughness: 0.4,
+        metalness: 0.1
+    });
+    elements.floorMaterial = floorMaterial;
+
+    const ceilingMaterial = new THREE.MeshStandardMaterial({
+        color: 0x111115,
+        roughness: 0.9
+    });
+
+    // Geometries
+    const floorGeo = new THREE.PlaneGeometry(width, length);
+    const ceilingGeo = new THREE.PlaneGeometry(width, length);
+    const wallGeo = new THREE.PlaneGeometry(length, height);
+
+    // Floor
+    elements.floor = new THREE.Mesh(floorGeo, floorMaterial);
+    elements.floor.rotation.x = -Math.PI / 2;
+    elements.floor.position.set(0, 0, -length / 2);
+    elements.floor.receiveShadow = true;
+    scene.add(elements.floor);
+
+    // Ceiling
+    elements.ceiling = new THREE.Mesh(ceilingGeo, ceilingMaterial);
+    elements.ceiling.rotation.x = Math.PI / 2;
+    elements.ceiling.position.set(0, height, -length / 2);
+    elements.ceiling.receiveShadow = true;
+    scene.add(elements.ceiling);
+
+    // Left Wall (X = -2)
+    elements.leftWall = new THREE.Mesh(wallGeo, wallMaterial);
+    elements.leftWall.rotation.y = Math.PI / 2;
+    elements.leftWall.position.set(-width / 2, height / 2, -length / 2);
+    elements.leftWall.receiveShadow = true;
+    scene.add(elements.leftWall);
+
+    // Right Wall (X = 2)
+    elements.rightWall = new THREE.Mesh(wallGeo, wallMaterial);
+    elements.rightWall.rotation.y = -Math.PI / 2;
+    elements.rightWall.position.set(width / 2, height / 2, -length / 2);
+    elements.rightWall.receiveShadow = true;
+    scene.add(elements.rightWall);
+
+    // End walls to close the Z=0 and Z=-30 voids around doors
+    const doorW = 1.04;
+    const doorH = 2.09;
+    const sideW = (width - doorW) / 2; // 1.48
+    const topH = height - doorH; // 0.91
+    const sideGeo = new THREE.PlaneGeometry(sideW, height);
+    const topGeo = new THREE.PlaneGeometry(doorW, topH);
+    elements.endWalls = [];
+
+    const buildWallAt = (z, isBack) => {
+        const rotY = isBack ? Math.PI : 0;
+        const zOffset = isBack ? -0.015 : 0.015;
+        const actualZ = z + zOffset;
+
+        // Left side panel
+        const left = new THREE.Mesh(sideGeo, wallMaterial);
+        left.position.set(-width/2 + sideW/2, height/2, actualZ);
+        left.rotation.y = rotY;
+        left.receiveShadow = true;
+        scene.add(left);
+        elements.endWalls.push(left);
+
+        // Right side panel
+        const right = new THREE.Mesh(sideGeo, wallMaterial);
+        right.position.set(width/2 - sideW/2, height/2, actualZ);
+        right.rotation.y = rotY;
+        right.receiveShadow = true;
+        scene.add(right);
+        elements.endWalls.push(right);
+
+        // Top panel
+        const top = new THREE.Mesh(topGeo, wallMaterial);
+        top.position.set(0, height - topH/2, actualZ);
+        top.rotation.y = rotY;
+        top.receiveShadow = true;
+        scene.add(top);
+        elements.endWalls.push(top);
+    };
+
+    buildWallAt(0, true); // Back Wall
+    if (activeAnomalyId !== 15) {
+        buildWallAt(-length, false); // Front Wall
+    }
+
+    // Baseboard trim for aesthetic polish
+    const baseboardGeo = new THREE.BoxGeometry(0.05, 0.15, length);
+    const baseboardLeft = new THREE.Mesh(baseboardGeo, new THREE.MeshStandardMaterial({ color: 0x0f172a }));
+    baseboardLeft.position.set(-width/2 + 0.02, 0.075, -length/2);
+    scene.add(baseboardLeft);
+    const baseboardRight = baseboardLeft.clone();
+    baseboardRight.position.x = width/2 - 0.02;
+    scene.add(baseboardRight);
+
+    // Ceiling lights placement
+    const numLights = (activeAnomalyId === 15) ? 18 : 4;
+    const lightSpacing = length / numLights;
+    const lightGeo = new THREE.BoxGeometry(0.8, 0.08, 0.15);
+    const lightEmitMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+    for (let i = 0; i < numLights; i++) {
+        const zPos = -lightSpacing * (i + 0.5);
+        
+        // Light fixture
+        const fixture = new THREE.Mesh(lightGeo, lightEmitMat);
+        fixture.position.set(0, height - 0.04, zPos);
+        scene.add(fixture);
+        
+        // Actual light source
+        const light = new THREE.PointLight(0xffffff, 0.5, 18);
+        light.position.set(0, height - 0.1, zPos);
+        light.castShadow = true;
+        light.shadow.bias = -0.002;
+        light.shadow.mapSize.width = 512;
+        light.shadow.mapSize.height = 512;
+        light.userData = { originalZ: zPos }; // backup position
+        scene.add(light);
+        elements.lights.push(light);
+    }
+
+    // Spawn exit number sign (Left wall, X = -1.98)
+    const signGeo = new THREE.PlaneGeometry(0.6, 0.3);
+    const signMat = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+    elements.exitSignMaterial = signMat;
+    elements.exitSign = new THREE.Mesh(signGeo, signMat);
+    elements.exitSign.rotation.y = Math.PI / 2;
+    elements.exitSign.position.set(-width/2 + 0.02, 1.8, -3.0);
+    scene.add(elements.exitSign);
+
+    // Spawn 4 posters on the left wall (Z = -7, -13, -19, -25)
+    // If Z length is normal
+    if (activeAnomalyId !== 15) {
+        const posterZ = [-7, -13, -19, -25];
+        const posterGeo = new THREE.PlaneGeometry(0.9, 1.35);
+
+        for (let i = 0; i < 4; i++) {
+            const pMat = new THREE.MeshStandardMaterial({ roughness: 0.5 });
+            elements.posterMaterials.push(pMat);
+
+            const poster = new THREE.Mesh(posterGeo, pMat);
+            poster.rotation.y = Math.PI / 2;
+            poster.position.set(-width/2 + 0.01, 1.5, posterZ[i]);
+            poster.userData = { originalZ: posterZ[i] };
+            scene.add(poster);
+            elements.posters.push(poster);
+        }
+    }
+
+    // Doors on the right wall (normal: 3 doors at Z = -8, -15, -22)
+    // If anomaly 15, we draw 67 doors!
+    const doorCount = (activeAnomalyId === 15) ? 67 : 3;
+    const doorZ = [];
+    if (activeAnomalyId === 15) {
+        // distribute 67 doors from Z=-4 to Z=-163
+        const doorSpacing = 159.0 / 66.0;
+        for (let i = 0; i < 67; i++) {
+            doorZ.push(-4.0 - i * doorSpacing);
+        }
+    } else {
+        doorZ.push(-8.0, -15.0, -22.0);
+    }
+
+    for (let i = 0; i < doorCount; i++) {
+        const doorGroup = createDoorMesh(`door_right_${i}`);
+        doorGroup.position.set(width / 2 - 0.02, 0, doorZ[i]);
+        doorGroup.rotation.y = -Math.PI / 2;
+        scene.add(doorGroup);
+        elements.rightDoors.push(doorGroup);
+    }
+
+    // Fire Hydrant (normal: between door 1 and 2, at Z = -11.5)
+    if (activeAnomalyId !== 15) {
+        elements.hydrant = createFireHydrantMesh();
+        elements.hydrant.position.set(width / 2 - 0.15, 0, -11.5);
+        scene.add(elements.hydrant);
+    }
+
+    // Front Exit Door ("no anomaly") at Z = -length
+    // In anomaly 15, front door is gone and replaced by graffiti wall
+    if (activeAnomalyId !== 15) {
+        elements.doorFront = createDoorMesh('door_front');
+        elements.doorFront.position.set(0, 0, -length + 0.02);
+        elements.doorFront.rotation.y = 0;
+        scene.add(elements.doorFront);
+
+        // Neon Sign board above door
+        const boardGeo = new THREE.PlaneGeometry(1.2, 0.3);
+        const boardMat = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+        elements.doorFrontTextMaterial = boardMat;
+        elements.doorFrontTextMesh = new THREE.Mesh(boardGeo, boardMat);
+        elements.doorFrontTextMesh.position.set(0, 2.3, -length + 0.04);
+        scene.add(elements.doorFrontTextMesh);
+    } else {
+        // Draw bright graffiti wall at Z = -167
+        const graffitiGeo = new THREE.PlaneGeometry(width, height);
+        const grafCanvas = document.createElement('canvas');
+        grafCanvas.width = 512; grafCanvas.height = 384;
+        const gCtx = grafCanvas.getContext('2d');
+        gCtx.fillStyle = '#ffffff';
+        gCtx.fillRect(0,0,512,384);
+        gCtx.fillStyle = '#ff3366';
+        gCtx.font = 'bold 70px "Share Tech Mono"';
+        gCtx.textAlign = 'center';
+        gCtx.fillText('six seven', 256, 200);
+        
+        const graffitiMat = new THREE.MeshBasicMaterial({
+            map: new THREE.CanvasTexture(grafCanvas)
+        });
+        const grafWall = new THREE.Mesh(graffitiGeo, graffitiMat);
+        grafWall.position.set(0, height/2, -166.9);
+        scene.add(grafWall);
+    }
+
+    // Back Exit Door ("yes anomaly") at Z = 0
+    elements.doorBack = createDoorMesh('door_back');
+    elements.doorBack.position.set(0, 0, -0.02);
+    elements.doorBack.rotation.y = Math.PI;
+    scene.add(elements.doorBack);
+
+    const boardBackGeo = new THREE.PlaneGeometry(1.2, 0.3);
+    const boardBackMat = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+    elements.doorBackTextMaterial = boardBackMat;
+    elements.doorBackTextMesh = new THREE.Mesh(boardBackGeo, boardBackMat);
+    elements.doorBackTextMesh.position.set(0, 2.3, -0.04);
+    elements.doorBackTextMesh.rotation.y = Math.PI; // Face the corridor to avoid mirroring
+    scene.add(elements.doorBackTextMesh);
+
+    // Re-render procedural sign materials
+    const canvasFront = AnomalySystem.drawDoorText("no anomaly", '#ff3366');
+    if (elements.doorFrontTextMaterial) {
+        elements.doorFrontTextMaterial.map = new THREE.CanvasTexture(canvasFront);
+        elements.doorFrontTextMaterial.needsUpdate = true;
+    }
+
+    const canvasBack = AnomalySystem.drawDoorText("yes anomaly", '#00ff66');
+    elements.doorBackTextMaterial.map = new THREE.CanvasTexture(canvasBack);
+    elements.doorBackTextMaterial.needsUpdate = true;
+
+    // If exit number is 67, spawn the victory stairs mesh instead of front door!
+    if (exitNumber === 67) {
+        if (elements.doorFront) {
+            scene.remove(elements.doorFront);
+            elements.doorFront = null;
+        }
+        if (elements.doorFrontTextMesh) {
+            scene.remove(elements.doorFrontTextMesh);
+            elements.doorFrontTextMesh = null;
+        }
+        
+        // Spawn 3D stairs leading up
+        const numSteps = 14;
+        const stairW = 4.0;
+        const stairTotalDepth = 5.0;
+        const stairTotalHeight = 2.4;
+        const stepDepth = stairTotalDepth / numSteps;
+        const stepHeight = stairTotalHeight / numSteps;
+        
+        elements.stairsGroup = new THREE.Group();
+        for (let i = 0; i < numSteps; i++) {
+            const stepGeo = new THREE.BoxGeometry(stairW, stepHeight, stepDepth);
+            const stepMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.8 });
+            const step = new THREE.Mesh(stepGeo, stepMat);
+            
+            // Stair steps coordinate starts at Z = -30.0 and climbs up
+            step.position.set(0, (i + 0.5) * stepHeight, -30.0 - (i + 0.5) * stepDepth);
+            step.receiveShadow = true;
+            step.castShadow = true;
+            elements.stairsGroup.add(step);
+        }
+        scene.add(elements.stairsGroup);
+    }
+}
+
+// Procedural Door mesh factory
+function createDoorMesh(name) {
+    const group = new THREE.Group();
+    group.name = name;
+
+    // Door Frame (metallic)
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.8, roughness: 0.2 });
+    const leftFrame = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.05, 0.08), frameMat);
+    leftFrame.position.set(-0.48, 1.025, 0);
+    group.add(leftFrame);
+    
+    const rightFrame = leftFrame.clone();
+    rightFrame.position.x = 0.48;
+    group.add(rightFrame);
+
+    const topFrame = new THREE.Mesh(new THREE.BoxGeometry(1.04, 0.08, 0.08), frameMat);
+    topFrame.position.set(0, 2.05, 0);
+    group.add(topFrame);
+
+    // Door Panel (colored wood look)
+    // Procedural door texture
+    const doorCanvas = document.createElement('canvas');
+    doorCanvas.width = 128; doorCanvas.height = 256;
+    const dCtx = doorCanvas.getContext('2d');
+    dCtx.fillStyle = '#2d1a10'; // Brown wood base
+    dCtx.fillRect(0, 0, 128, 256);
+    dCtx.strokeStyle = '#402719';
+    dCtx.lineWidth = 6;
+    dCtx.strokeRect(10, 10, 108, 108); // panel panels
+    dCtx.strokeRect(10, 130, 108, 108);
+    
+    const doorTex = new THREE.CanvasTexture(doorCanvas);
+    const panelMat = new THREE.MeshStandardMaterial({
+        map: doorTex,
+        roughness: 0.6,
+        metalness: 0.1
+    });
+
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(0.88, 2.0, 0.04), panelMat);
+    panel.position.set(0, 1.0, 0);
+    panel.castShadow = true;
+    panel.receiveShadow = true;
+    group.add(panel);
+
+    // Door Handle (brass)
+    const handleMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.9, roughness: 0.1 });
+    const handleGroup = new THREE.Group();
+    handleGroup.name = "handle";
+    
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.01, 8), handleMat);
+    base.rotation.x = Math.PI / 2;
+    handleGroup.add(base);
+
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.02, 0.02), handleMat);
+    bar.position.set(0.04, 0, 0.02);
+    handleGroup.add(bar);
+
+    // Handle sits on the right side of panel
+    handleGroup.position.set(0.32, 1.0, 0.03);
+    group.add(handleGroup);
+
+    return group;
+}
+
+// Procedural Fire Hydrant factory
+function createFireHydrantMesh() {
+    const group = new THREE.Group();
+    
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0xcc1111, roughness: 0.5 });
+    elements.hydrantParts = [bodyMat];
+
+    const metalMat = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.8, roughness: 0.2 });
+
+    // Main barrel
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.7, 16), bodyMat);
+    barrel.position.y = 0.35;
+    barrel.castShadow = true;
+    group.add(barrel);
+
+    // Cap sphere
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.15, 16, 8, 0, Math.PI*2, 0, Math.PI/2), bodyMat);
+    cap.position.y = 0.7;
+    cap.castShadow = true;
+    group.add(cap);
+
+    // Base ring
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.06, 16), metalMat);
+    base.position.y = 0.03;
+    group.add(base);
+
+    // Outlets on sides
+    const outletGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.1, 12);
+    const outletL = new THREE.Mesh(outletGeo, metalMat);
+    outletL.rotation.z = Math.PI / 2;
+    outletL.position.set(-0.15, 0.45, 0);
+    group.add(outletL);
+
+    const outletR = outletL.clone();
+    outletR.position.x = 0.15;
+    group.add(outletR);
+
+    // Front gauge
+    const gauge = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.04, 12), metalMat);
+    gauge.rotation.x = Math.PI / 2;
+    gauge.position.set(0, 0.5, 0.14);
+    group.add(gauge);
+
+    return group;
+}
+
+// Reset level coordinates and decide anomaly
+function resetLevelState(forcedExitNum = null) {
+    if (forcedExitNum !== null) {
+        exitNumber = forcedExitNum;
+    }
+    
+    // Choose active anomaly
+    if (exitNumber === 0) {
+        activeAnomalyId = 0; // Exit 0 is ALWAYS normal
+    } else {
+        // 67% chance of anomaly
+        const isAnomaly = Math.random() < 0.67;
+        if (isAnomaly) {
+            // Select random anomaly from 1 to 67
+            activeAnomalyId = Math.floor(Math.random() * 67) + 1;
+            
+            // TEST INSTRUCTION: You can set a specific anomaly ID here for debugging
+            // activeAnomalyId = 8;
+        } else {
+            activeAnomalyId = 0;
+        }
+    }
+
+    console.log(`Exit: ${exitNumber}. Active Anomaly ID: ${activeAnomalyId}`);
+    
+    // Re-generate geometry/scene map
+    generateScene();
+    
+    // Apply visual effects/hooks from anomaly system
+    AnomalySystem.apply(scene, activeAnomalyId, elements, exitNumber);
+    
+    // Reset player position near the yes anomaly door (Z = 0)
+    playerPos.set(0, 0, -1.2);
+    cameraRotation.yaw = 0;
+    cameraRotation.pitch = 0;
+    camera.rotation.set(0, 0, 0);
+    
+    // Fade in from black
+    const overlay = document.getElementById('red-gameover-overlay');
+    overlay.style.background = 'black';
+    overlay.classList.add('active');
+    overlay.style.opacity = 1;
+    
+    let fadeVal = 1;
+    const fadeTimer = setInterval(() => {
+        fadeVal -= 0.08;
+        if (fadeVal <= 0) {
+            clearInterval(fadeTimer);
+            overlay.classList.remove('active');
+            overlay.style.opacity = 0;
+            overlay.style.background = ''; // reset for gameover
+        } else {
+            overlay.style.opacity = fadeVal;
+        }
+    }, 30);
+
+    updateHUD();
+}
+
+// User clicked front door ("no anomaly" door)
+function interactWithFrontDoor() {
+    const hasAnomaly = (activeAnomalyId !== 0);
+    
+    // Transition fade out
+    fadeOutScreenAndTrigger(() => {
+        if (!hasAnomaly) {
+            // Correct choice!
+            exitNumber++;
+            window.gameAudio.playSuccess();
+            if (exitNumber >= 67) {
+                // Should show stairs next round, so we don't end immediately. 
+                // Reaching 67 shows the stairs, which they must walk up to trigger victory!
+                resetLevelState();
+            } else {
+                resetLevelState();
+            }
+        } else {
+            // Incorrect! Go back 1 stage (clamp at 0)
+            exitNumber = Math.max(0, exitNumber - 1);
+            window.gameAudio.playFail();
+            resetLevelState();
+        }
+    });
+}
+
+// User clicked back door ("yes anomaly" door)
+function interactWithBackDoor() {
+    const hasAnomaly = (activeAnomalyId !== 0);
+
+    fadeOutScreenAndTrigger(() => {
+        if (hasAnomaly) {
+            // Correct choice!
+            exitNumber++;
+            window.gameAudio.playSuccess();
+            resetLevelState();
+        } else {
+            // Incorrect! Go back 1 stage (clamp at 0)
+            exitNumber = Math.max(0, exitNumber - 1);
+            window.gameAudio.playFail();
+            resetLevelState();
+        }
+    });
+}
+
+function fadeOutScreenAndTrigger(callback) {
+    const overlay = document.getElementById('red-gameover-overlay');
+    overlay.style.background = 'black';
+    overlay.classList.add('active');
+    overlay.style.opacity = 0;
+    
+    let fadeVal = 0;
+    const fadeTimer = setInterval(() => {
+        fadeVal += 0.1;
+        overlay.style.opacity = fadeVal;
+        if (fadeVal >= 1.0) {
+            clearInterval(fadeTimer);
+            callback();
+        }
+    }, 25);
+}
+
+// Trigger Game Over with specific reason
+function triggerGameOver(reason) {
+    if (gameState !== 'playing') return;
+    gameState = 'gameover';
+    
+    window.gameAudio.playGameOver();
+    
+    // Animate player falling over
+    let fallRotX = cameraRotation.pitch;
+    let fallRotZ = 0;
+    let fallPosY = camera.position.y;
+    
+    const targetRotX = (reason === 'blue_hand') ? -0.1 : -Math.PI / 3;
+    const targetRotZ = (reason === 'blue_hand') ? Math.PI / 2 : 0;
+    const targetPosY = (reason === 'blue_hand') ? 0.05 : 0.3;
+
+    const fallInterval = setInterval(() => {
+        fallRotX = THREE.MathUtils.lerp(fallRotX, targetRotX, 0.1);
+        fallRotZ = THREE.MathUtils.lerp(fallRotZ, targetRotZ, 0.1);
+        fallPosY = THREE.MathUtils.lerp(fallPosY, targetPosY, 0.1);
+        camera.rotation.x = fallRotX;
+        camera.rotation.z = fallRotZ;
+        camera.position.y = fallPosY;
+    }, 30);
+    
+    setTimeout(() => {
+        clearInterval(fallInterval);
+    }, 900);
+
+    // Apply special overlays
+    if (reason === 'blue_hand') {
+        const handDiv = document.getElementById('handprint-jumpscare');
+        handDiv.style.display = 'flex';
+        setTimeout(() => {
+            document.querySelector('.screamer-hand').classList.add('active');
+        }, 50);
+    }
+    
+    // Fade out to black and auto-respawn after 1.5s
+    setTimeout(() => {
+        const overlay = document.getElementById('red-gameover-overlay');
+        overlay.style.background = 'black';
+        overlay.classList.add('active');
+        overlay.style.opacity = 0;
+        
+        let fadeVal = 0;
+        const fadeTimer = setInterval(() => {
+            fadeVal += 0.08;
+            overlay.style.opacity = fadeVal;
+            if (fadeVal >= 1.0) {
+                clearInterval(fadeTimer);
+                
+                // Reset jumpscare overlays
+                document.getElementById('handprint-jumpscare').style.display = 'none';
+                document.querySelector('.screamer-hand').classList.remove('active');
+                
+                // Reset state to exit 0
+                exitNumber = 0;
+                gameState = 'playing';
+                updateHUD();
+                
+                // Ensure pointer lock is maintained/re-requested
+                document.getElementById('canvas-container').requestPointerLock();
+                
+                resetLevelState(0);
+            }
+        }, 30);
+    }, 1500);
+}
+
+// Trigger Victory ending
+function triggerVictory() {
+    if (gameState !== 'playing') return;
+    gameState = 'victory';
+    document.exitPointerLock();
+    
+    window.gameAudio.playVictory();
+    
+    // Fade to white
+    const overlay = document.getElementById('red-gameover-overlay');
+    overlay.style.background = 'white';
+    overlay.classList.add('active');
+    overlay.style.opacity = 0;
+    
+    let fadeVal = 0;
+    const fadeTimer = setInterval(() => {
+        fadeVal += 0.05;
+        overlay.style.opacity = fadeVal;
+        if (fadeVal >= 1.0) {
+            clearInterval(fadeTimer);
+            
+            // Wait 1.5 seconds in white screen, then display "Thank you for playing" card
+            setTimeout(() => {
+                const victoryMenu = document.getElementById('menu-victory');
+                victoryMenu.classList.add('active');
+                
+                // Wait another 1.5 seconds, then return to the main start menu automatically
+                setTimeout(() => {
+                    victoryMenu.classList.remove('active');
+                    
+                    exitNumber = 0;
+                    gameState = 'menu';
+                    updateHUD();
+                    
+                    // Reset levels (rebuilds scene at exit 0 and fades in from black)
+                    resetLevelState(0);
+                    
+                    // Show start menu
+                    document.getElementById('menu-start').classList.add('active');
+                }, 1500);
+            }, 1500);
+        }
+    }, 30);
+}
+
+// Core Game Loop
+let lastTime = 0;
+function animate(currentTime) {
+    requestAnimationFrame(animate);
+    
+    if (lastTime === 0) lastTime = currentTime;
+    const deltaTime = Math.min((currentTime - lastTime) / 1000, 0.1); // clamp delta
+    lastTime = currentTime;
+
+    if (gameState !== 'playing') {
+        if (gameState === 'gameover' || gameState === 'victory') {
+            renderer.render(scene, camera);
+        }
+        return;
+    }
+
+    // Movement calculation
+    let isMoving = false;
+    let isRunning = keys[' '] || keys['spacebar'];
+    
+    // 58. 초중력 anomaly restricts running
+    if (activeAnomalyId === 58) {
+        isRunning = false;
+    }
+
+    const moveDirection = new THREE.Vector3();
+    if (keys['w'] || keys['ㅈ']) moveDirection.z -= 1;
+    if (keys['s'] || keys['ㄴ']) moveDirection.z += 1;
+    if (keys['a'] || keys['ㅁ']) moveDirection.x -= 1;
+    if (keys['d'] || keys['ㅇ']) moveDirection.x += 1;
+    
+    if (moveDirection.lengthSq() > 0) {
+        isMoving = true;
+        moveDirection.normalize();
+    }
+
+    // Compute directions based on camera look
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    forward.y = 0;
+    forward.normalize();
+
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+    right.y = 0;
+    right.normalize();
+
+    const moveVec = new THREE.Vector3();
+    moveVec.addScaledVector(forward, -moveDirection.z);
+    moveVec.addScaledVector(right, moveDirection.x);
+    if (moveVec.lengthSq() > 0) {
+        moveVec.normalize(); // Keep speed consistent when moving diagonally
+    }
+    
+    // Apply speed modifiers
+    let currentSpeed = isRunning ? runSpeed : walkSpeed;
+    
+    // 57. 끈적한 걸음 anomaly reduces walk speed drastically
+    if (activeAnomalyId === 57 && !isRunning) {
+        currentSpeed = walkSpeed * 0.1;
+    }
+
+    // Apply movement vector
+    if (isMoving && elements.pitState !== 'falling') {
+        playerPos.addScaledVector(moveVec, currentSpeed * deltaTime);
+    }
+
+    // Floor collision boundaries
+    const currentCorridorLength = (activeAnomalyId === 15) ? 167 : 30;
+    let minZ = -currentCorridorLength + 0.5;
+    let maxZ = -0.5;
+    
+    if (exitNumber === 67) {
+        // Let player walk further forward up the stairs
+        minZ = -34.8;
+    }
+
+    // Wall collision clamping
+    playerPos.x = THREE.MathUtils.clamp(playerPos.x, -1.6, 1.6);
+    playerPos.z = THREE.MathUtils.clamp(playerPos.z, minZ, maxZ);
+
+    // Stairs climbing height calculations
+    if (exitNumber === 67 && playerPos.z < -30.0) {
+        // stairs range Z = [-30, -34.8]
+        const stairProgress = (playerPos.z - (-30.0)) / -4.8; // 0 to 1
+        playerPos.y = stairProgress * 2.4; // climb up 2.4m
+        
+        // If at the top of the stairs, trigger escape victory!
+        if (playerPos.z <= -34.5) {
+            triggerVictory();
+        }
+    } else {
+        // Normal flat floor height or falling animation
+        if (activeAnomalyId === 50 && elements.pitState === 'falling') {
+            playerPos.y -= deltaTime * 10.0;
+        } else {
+            playerPos.y = 0;
+        }
+    }
+
+    // Head Bobbing animation
+    let bobY = 0;
+    if (isMoving && elements.pitState !== 'falling') {
+        const bobSpeed = isRunning ? 14 : 9;
+        const bobAmount = isRunning ? 0.08 : 0.04;
+        
+        // 58. 초중력 heavy bobbing
+        const weight = (activeAnomalyId === 58) ? 2.5 : 1.0;
+        
+        stepTimer += deltaTime * bobSpeed;
+        bobY = Math.sin(stepTimer) * bobAmount * weight;
+
+        // Footstep trigger
+        if (Math.sin(stepTimer) < -0.9 && !elements.stepLatch) {
+            const isSplash = (activeAnomalyId === 65 || activeAnomalyId === 24);
+            window.gameAudio.playFootstep(isRunning, isSplash);
+            elements.stepLatch = true;
+            
+            // Anomaly 51: Stalker Footsteps follows
+            if (activeAnomalyId === 51) {
+                setTimeout(() => {
+                    window.gameAudio.playFootstep(isRunning, false);
+                }, 300);
+            }
+        }
+        if (Math.sin(stepTimer) > 0) {
+            elements.stepLatch = false;
+        }
+    } else {
+        // Breathing idle bob
+        stepTimer += deltaTime * 2;
+        bobY = Math.sin(stepTimer) * 0.01;
+    }
+
+    // Position camera
+    camera.position.x = playerPos.x;
+    camera.position.z = playerPos.z;
+    camera.position.y = playerPos.y + playerHeight + bobY;
+
+    // Apply camera rotation (look direction)
+    camera.rotation.x = cameraRotation.pitch;
+    camera.rotation.y = cameraRotation.yaw;
+
+    // 46. 천장과 바닥의 반전 anomaly: flip camera Z 180 degrees
+    if (activeAnomalyId === 46) {
+        camera.rotation.z = Math.PI;
+    } else {
+        camera.rotation.z = 0;
+    }
+
+    // Raycast check for hover interaction on doors
+    raycaster.setFromCamera(mouse, camera);
+    const interactables = [];
+    if (elements.doorFront) interactables.push(elements.doorFront);
+    if (elements.doorBack) interactables.push(elements.doorBack);
+    if (activeAnomalyId === 38 && elements.rightDoors[0]) {
+        interactables.push(elements.rightDoors[0]);
+    }
+    
+    const intersects = raycaster.intersectObjects(interactables, true);
+    const crosshair = document.getElementById('crosshair');
+    if (intersects.length > 0) {
+        let hitObj = intersects[0].object;
+        while (hitObj.parent && hitObj.name !== 'door_front' && hitObj.name !== 'door_back' && hitObj.name !== 'door_right_0') {
+            hitObj = hitObj.parent;
+        }
+        const dist = playerPos.distanceTo(hitObj.position);
+        if (dist < 4.0) {
+            crosshair.classList.add('active');
+        } else {
+            crosshair.classList.remove('active');
+        }
+    } else {
+        crosshair.classList.remove('active');
+    }
+
+    // Update ongoing animations in Anomaly System
+    AnomalySystem.update(elements, playerPos, isMoving, isRunning, deltaTime, triggerGameOver);
+
+    renderer.render(scene, camera);
+}
+
+// Bootstrap window load
+window.onload = initGame;

@@ -1,0 +1,366 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Share+Tech+Mono&display=swap');
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+}
+
+body, html {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: #050508;
+    color: #e2e8f0;
+    font-family: 'Outfit', sans-serif;
+}
+
+#canvas-container {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 1;
+}
+
+/* Glassmorphism UI Base */
+.glass-panel {
+    background: rgba(10, 10, 15, 0.45);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+    padding: 2.5rem;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-panel:hover {
+    border-color: rgba(255, 255, 255, 0.15);
+    box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.7);
+}
+
+/* Screen Overlays */
+.overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 10;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.5s ease;
+    background: rgba(3, 3, 5, 0.7);
+}
+
+.overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* HUD elements */
+#hud {
+    position: absolute;
+    top: 1.5rem;
+    left: 1.5rem;
+    right: 1.5rem;
+    z-index: 5;
+    pointer-events: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.hud-card {
+    background: rgba(10, 10, 15, 0.6);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    padding: 0.8rem 1.5rem;
+    border-radius: 12px;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.hud-card.exit-counter {
+    border-left: 3px solid #ff3366;
+}
+
+.hud-card.flashlight-status {
+    border-right: 3px solid #00E5FF;
+}
+
+.hud-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: #94a3b8;
+    font-weight: 600;
+}
+
+.hud-value {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 1.5rem;
+    font-weight: 800;
+    text-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+}
+
+/* Crosshair for interaction */
+#crosshair {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 6px;
+    height: 6px;
+    background-color: rgba(255, 255, 255, 0.4);
+    border-radius: 50%;
+    z-index: 4;
+    pointer-events: none;
+    transition: all 0.2s ease;
+}
+
+#crosshair.active {
+    width: 14px;
+    height: 14px;
+    background-color: transparent;
+    border: 2px solid #ff3366;
+    box-shadow: 0 0 8px rgba(255, 51, 102, 0.5);
+}
+
+/* Menus & Cards */
+.menu-card {
+    max-width: 500px;
+    width: 90%;
+    text-align: center;
+    transform: scale(0.9);
+    transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.overlay.active .menu-card {
+    transform: scale(1);
+}
+
+h1 {
+    font-size: 3.5rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.5rem;
+    background: linear-gradient(135deg, #ffffff 0%, #a5b4fc 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: 0 4px 20px rgba(165, 180, 252, 0.1);
+}
+
+.subtitle {
+    color: #94a3b8;
+    font-size: 1.1rem;
+    margin-bottom: 2rem;
+    letter-spacing: 0.05em;
+}
+
+.controls-list {
+    text-align: left;
+    margin: 1.5rem 0 2rem 0;
+    padding: 1rem 1.5rem;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.control-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.4rem 0;
+    font-size: 0.9rem;
+    border-bottom: 1px dashed rgba(255, 255, 255, 0.05);
+}
+
+.control-item:last-child {
+    border-bottom: none;
+}
+
+.key-cap {
+    font-family: 'Share Tech Mono', monospace;
+    background: rgba(255, 255, 255, 0.1);
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    font-weight: 600;
+    box-shadow: 0 2px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* Buttons */
+.btn {
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+    color: white;
+    border: none;
+    padding: 1rem 2.5rem;
+    font-size: 1.1rem;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    letter-spacing: 0.05em;
+    width: 100%;
+}
+
+.btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.6);
+    background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
+}
+
+.btn:active {
+    transform: translateY(0);
+}
+
+/* Game Over Card */
+.gameover-card {
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    box-shadow: 0 8px 32px 0 rgba(239, 68, 68, 0.15);
+}
+
+.gameover-card h1 {
+    background: linear-gradient(135deg, #ff6b6b 0%, #ff0000 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: 0 4px 20px rgba(239, 68, 68, 0.3);
+}
+
+.gameover-card .btn {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4);
+}
+
+.gameover-card .btn:hover {
+    background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
+    box-shadow: 0 6px 20px rgba(239, 68, 68, 0.6);
+}
+
+/* Victory Card */
+.victory-card {
+    border: 1px solid rgba(34, 197, 94, 0.2);
+    box-shadow: 0 8px 32px 0 rgba(34, 197, 94, 0.15);
+}
+
+.victory-card h1 {
+    background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: 0 4px 20px rgba(34, 197, 94, 0.3);
+}
+
+.victory-card .btn {
+    background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+    box-shadow: 0 4px 15px rgba(34, 197, 94, 0.4);
+}
+
+.victory-card .btn:hover {
+    background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
+    box-shadow: 0 6px 20px rgba(34, 197, 94, 0.6);
+}
+
+/* Anomaly Warning Banner (optional popup) */
+#instruction-tooltip {
+    position: absolute;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 5;
+    pointer-events: none;
+    font-size: 0.9rem;
+    letter-spacing: 0.05em;
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 0.6rem 1.2rem;
+    border-radius: 30px;
+    opacity: 0.7;
+    transition: opacity 0.3s ease;
+}
+
+/* Blue Handprint Fullscreen Jumpscare Overlay */
+#handprint-jumpscare {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 100;
+    pointer-events: none;
+    display: none;
+    justify-content: center;
+    align-items: center;
+    background: transparent;
+}
+
+.screamer-hand {
+    position: absolute;
+    width: 250px;
+    height: 250px;
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="%2300E5FF"><path d="M256 0c141.4 0 256 114.6 256 256s-114.6 256-256 256S0 397.4 0 256 114.6 0 256 0zm-7.6 156.4c-9.1 0-16.4 7.3-16.4 16.4v96.2c0 9.1 7.3 16.4 16.4 16.4s16.4-7.3 16.4-16.4v-96.2c0-9.1-7.3-16.4-16.4-16.4zm-64.8 28c-9.1 0-16.4 7.3-16.4 16.4v68.2c0 9.1 7.3 16.4 16.4 16.4s16.4-7.3 16.4-16.4V201c0-9.1-7.3-16.5-16.4-16.5zm129.6 0c-9.1 0-16.4 7.3-16.4 16.4V201c0-9.1-7.3-16.5-16.4-16.5s-16.4 7.3-16.4 16.4v68.2c0 9.1 7.3 16.4 16.4 16.4s16.4-7.3 16.4-16.4v-68.2zm-194.4 72c-9.1 0-16.4 7.3-16.4 16.4v16.2c0 9.1 7.3 16.4 16.4 16.4s16.4-7.3 16.4-16.4v-16.2c0-9.1-7.3-16.4-16.4-16.4zm259.2 0c-9.1 0-16.4 7.3-16.4 16.4v16.2c0 9.1 7.3 16.4 16.4 16.4s16.4-7.3 16.4-16.4v-16.2c0-9.1-7.3-16.4-16.4-16.4zm-147.2 92.4c-35 0-63.4 28.4-63.4 63.4s28.4 63.4 63.4 63.4 63.4-28.4 63.4-63.4-28.4-63.4-63.4-63.4z"/></svg>');
+    background-size: contain;
+    background-repeat: no-repeat;
+    opacity: 0;
+    transform: scale(0.2);
+    transition: all 0.5s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+
+.screamer-hand.active {
+    opacity: 0.9;
+    transform: scale(1.5);
+}
+
+/* Red overlay for Game Over */
+#red-gameover-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: radial-gradient(circle, rgba(255,0,0,0.4) 0%, rgba(0,0,0,0.9) 100%);
+    opacity: 0;
+    transition: none;
+    pointer-events: none;
+    z-index: 9;
+}
+
+#red-gameover-overlay.active {
+    opacity: 1;
+}
+
+/* Vignette effect */
+#vignette {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    box-shadow: inset 0 0 100px rgba(0,0,0,0.8);
+    pointer-events: none;
+    z-index: 3;
+}
+
+/* Pause menu layout */
+.pause-card h2 {
+    font-size: 2.2rem;
+    font-weight: 700;
+    margin-bottom: 1.5rem;
+    color: #f1f5f9;
+}
+
+.pause-card .btn-group {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
