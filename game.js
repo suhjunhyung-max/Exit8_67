@@ -468,7 +468,7 @@ function generateScene() {
         // Actual light source
         const light = new THREE.PointLight(0xffffff, 0.5, 18);
         light.position.set(0, height - 0.1, zPos);
-        light.castShadow = true;
+        light.castShadow = (activeAnomalyId !== 15); // WebGL 텍스처 한계로 인한 렌더링 무력화(블랙아웃) 방지
         light.shadow.bias = -0.002;
         light.shadow.mapSize.width = 512;
         light.shadow.mapSize.height = 512;
