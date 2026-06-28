@@ -9,6 +9,8 @@ let keys = {};
 let stepTimer = 0;
 let flashlightOn = false;
 let isTransitioning = false;
+let npcModelTemplate = null;
+let npcAnimations = [];
 
 // Movement speeds
 const walkSpeed = 2.4;
@@ -44,7 +46,9 @@ const elements = {
     flashlight: null,
     flashlightOn: false,
     victoryAmbientLight: null,
-    stairsGroup: null
+    stairsGroup: null,
+    npcCharacter: null,
+    npcMixer: null
 };
 
 // Start the game
@@ -54,6 +58,9 @@ function initGame() {
     generateScene();
     updateHUD();
     
+    // 비동기 모델 로딩 시작
+    loadNPCModel();
+    
     // Hide loading / show start menu
     document.getElementById('menu-start').classList.add('active');
     
@@ -61,6 +68,64 @@ function initGame() {
     populateAnomalyList();
     
     animate(0);
+}
+
+function loadNPCModel() {
+    if (typeof THREE.GLTFLoader === 'undefined') {
+        console.warn("GLTFLoader not loaded yet, retrying...");
+        setTimeout(loadNPCModel, 500);
+        return;
+    }
+    const loader = new THREE.GLTFLoader();
+    loader.load('asset/char1.glb', (gltf) => {
+        npcModelTemplate = gltf.scene;
+        npcAnimations = gltf.animations;
+        
+        // 그림자 설정
+        npcModelTemplate.traverse(node => {
+            if (node.isMesh) {
+                node.castShadow = true;
+                node.receiveShadow = true;
+            }
+        });
+        console.log("NPC Model loaded successfully!");
+        
+        // 시작 시 비동기로 모델이 늦게 로드되었을 경우를 대비해 스폰 시도
+        if (gameState === 'playing' && !elements.npcCharacter) {
+            spawnNPCCharacter();
+        }
+    }, undefined, (error) => {
+        console.error("Failed to load NPC model:", error);
+    });
+}
+
+function spawnNPCCharacter() {
+    if (!npcModelTemplate) return;
+    
+    // 기존 NPC 제거
+    if (elements.npcCharacter) {
+        scene.remove(elements.npcCharacter);
+        elements.npcCharacter = null;
+        elements.npcMixer = null;
+    }
+    
+    elements.npcCharacter = npcModelTemplate.clone();
+    
+    // 복도 앞쪽 NO Anomaly 문 오른쪽
+    const currentCorridorLength = (activeAnomalyId === 15) ? 167 : 30;
+    elements.npcCharacter.position.set(0.8, 0, -currentCorridorLength + 1.0);
+    
+    // 뒤쪽(Z=0)을 바라보고 걷도록 회전
+    elements.npcCharacter.rotation.set(0, 0, 0);
+    
+    scene.add(elements.npcCharacter);
+    
+    // 애니메이션 믹서 시작
+    if (npcAnimations && npcAnimations.length > 0) {
+        elements.npcMixer = new THREE.AnimationMixer(elements.npcCharacter);
+        const action = elements.npcMixer.clipAction(npcAnimations[0]);
+        action.play();
+    }
 }
 
 function setupThreeJS() {
@@ -835,6 +900,9 @@ function resetLevelState(forcedExitNum = null, forcedAnomalyId = null) {
         
         // Apply visual effects/hooks from anomaly system
         AnomalySystem.apply(scene, activeAnomalyId, elements, exitNumber);
+        
+        // 캐릭터 모델 생성 및 초기화
+        spawnNPCCharacter();
     } catch (error) {
         console.error("Critical error during resetLevelState:", error);
         // Fallback to normal corridor (anomaly ID 0) to avoid crash/black screen
@@ -1240,6 +1308,29 @@ function animate(currentTime) {
 
     // Update ongoing animations in Anomaly System
     AnomalySystem.update(elements, playerPos, isMoving, isRunning, deltaTime, triggerGameOver);
+
+    // NPC 캐릭터 이동 제어 (복도 앞쪽 NO Anomaly -> 뒤쪽 끝으로 이동)
+    if (elements.npcCharacter) {
+        const targetZ = -1.0; // 복도 뒤쪽 끝
+        if (elements.npcCharacter.position.z < targetZ) {
+            // 속도 1.5 m/s로 전진
+            elements.npcCharacter.position.z += 1.5 * deltaTime;
+            
+            if (elements.npcCharacter.position.z >= targetZ) {
+                elements.npcCharacter.position.z = targetZ;
+                // 도달하면 멈추고 애니메이션 중단
+                if (elements.npcMixer) {
+                    elements.npcMixer.stopAllAction();
+                    elements.npcMixer = null;
+                }
+            }
+        }
+    }
+    
+    // 믹서 애니메이션 프레임 업데이트
+    if (elements.npcMixer) {
+        elements.npcMixer.update(deltaTime);
+    }
 
     renderer.render(scene, camera);
 }
