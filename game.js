@@ -595,8 +595,8 @@ function generateScene() {
     elements.doorBackTextMaterial.map = new THREE.CanvasTexture(canvasBack);
     elements.doorBackTextMaterial.needsUpdate = true;
 
-    // If exit number is 67, spawn the victory stairs mesh instead of front door!
-    if (exitNumber === 67) {
+    // If exit number is 67 and no anomaly is active, spawn the victory stairs mesh instead of front door!
+    if (exitNumber === 67 && activeAnomalyId === 0) {
         if (elements.doorFront) {
             scene.remove(elements.doorFront);
             elements.doorFront = null;
@@ -620,8 +620,8 @@ function generateScene() {
             const stepMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.8 });
             const step = new THREE.Mesh(stepGeo, stepMat);
             
-            // Stair steps coordinate starts at Z = -30.0 and climbs up
-            step.position.set(0, (i + 0.5) * stepHeight, -30.0 - (i + 0.5) * stepDepth);
+            // Stair steps coordinate starts at Z = -length and climbs up (further into negative Z)
+            step.position.set(0, (i + 0.5) * stepHeight, -length - (i + 0.5) * stepDepth);
             step.receiveShadow = true;
             step.castShadow = true;
             elements.stairsGroup.add(step);
@@ -1073,9 +1073,9 @@ function animate(currentTime) {
     let minZ = -currentCorridorLength + 0.5;
     let maxZ = -0.5;
     
-    if (exitNumber === 67) {
+    if (exitNumber === 67 && activeAnomalyId === 0) {
         // Let player walk further forward up the stairs
-        minZ = -34.8;
+        minZ = -currentCorridorLength - 4.8;
     }
 
     // Wall collision clamping
@@ -1083,13 +1083,13 @@ function animate(currentTime) {
     playerPos.z = THREE.MathUtils.clamp(playerPos.z, minZ, maxZ);
 
     // Stairs climbing height calculations
-    if (exitNumber === 67 && playerPos.z < -30.0) {
-        // stairs range Z = [-30, -34.8]
-        const stairProgress = (playerPos.z - (-30.0)) / -4.8; // 0 to 1
+    if (exitNumber === 67 && activeAnomalyId === 0 && playerPos.z < -currentCorridorLength) {
+        // stairs range Z = [-currentCorridorLength, -currentCorridorLength - 4.8]
+        const stairProgress = (playerPos.z - (-currentCorridorLength)) / -4.8; // 0 to 1
         playerPos.y = stairProgress * 2.4; // climb up 2.4m
         
         // If at the top of the stairs, trigger escape victory!
-        if (playerPos.z <= -34.5) {
+        if (playerPos.z <= -currentCorridorLength - 4.5) {
             triggerVictory();
         }
     } else {
