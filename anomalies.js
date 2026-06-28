@@ -1834,6 +1834,10 @@ const AnomalySystem = {
             scene.fog.density = 0.05; // 포그 밀도 복구
             scene.fog.color.setHex(0x050508); // 포그 색상 복구
         }
+        if (elements.victoryAmbientLight) {
+            scene.remove(elements.victoryAmbientLight);
+            elements.victoryAmbientLight = null;
+        }
 
         // 38. Keyhole red light clean
         if (elements.keyholeRedLight) {

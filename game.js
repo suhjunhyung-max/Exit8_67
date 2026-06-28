@@ -42,7 +42,8 @@ const elements = {
     hydrantParts: [],
     lights: [],
     flashlight: null,
-    flashlightOn: false
+    flashlightOn: false,
+    victoryAmbientLight: null
 };
 
 // Start the game
@@ -331,6 +332,11 @@ function generateScene() {
     elements.lights.forEach(l => scene.remove(l));
     elements.lights = [];
 
+    if (elements.victoryAmbientLight) {
+        scene.remove(elements.victoryAmbientLight);
+        elements.victoryAmbientLight = null;
+    }
+
     // 68번 방일 때 배경색과 포그를 흰색으로 설정하여 계단 부근의 어둠을 제거하고 밝게 만듦
     if (scene) {
         if (exitNumber === 68) {
@@ -339,6 +345,11 @@ function generateScene() {
                 scene.fog.color.setHex(0xffffff);
                 scene.fog.density = 0.02; // 은은하고 밝은 흰색 안개
             }
+            
+            // 계단 주위의 어둠을 완전히 지우고 환하게 비추기 위해 강한 환경광 생성
+            const ambLight = new THREE.AmbientLight(0xffffff, 2.0);
+            scene.add(ambLight);
+            elements.victoryAmbientLight = ambLight;
         } else {
             scene.background = new THREE.Color(0x050508);
             if (scene.fog) {
