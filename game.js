@@ -8,6 +8,7 @@ let cameraRotation = { yaw: 0, pitch: 0 };
 let keys = {};
 let stepTimer = 0;
 let flashlightOn = false;
+let isTransitioning = false;
 
 // Movement speeds
 const walkSpeed = 2.4;
@@ -53,6 +54,9 @@ function initGame() {
     
     // Hide loading / show start menu
     document.getElementById('menu-start').classList.add('active');
+    
+    // Populate anomaly dictionary list
+    populateAnomalyList();
     
     animate(0);
 }
@@ -186,8 +190,17 @@ function setupEventListeners() {
 
     // Button clicks in menus
     document.getElementById('btn-start').addEventListener('click', startGame);
+    document.getElementById('btn-show-anomalies').addEventListener('click', () => {
+        document.getElementById('menu-start').classList.remove('active');
+        document.getElementById('menu-anomalies').classList.add('active');
+    });
+    document.getElementById('btn-close-anomalies').addEventListener('click', () => {
+        document.getElementById('menu-anomalies').classList.remove('active');
+        document.getElementById('menu-start').classList.add('active');
+    });
     document.getElementById('btn-resume').addEventListener('click', resumeGame);
     document.getElementById('btn-restart-pause').addEventListener('click', restartGame);
+    document.getElementById('btn-main-pause').addEventListener('click', returnToMainMenu);
     document.getElementById('btn-restart-gameover').addEventListener('click', restartGame);
     document.getElementById('btn-restart-victory').addEventListener('click', restartGame);
 }
@@ -255,6 +268,24 @@ function restartGame() {
     document.getElementById('canvas-container').requestPointerLock();
     
     resetLevelState(0);
+}
+
+function returnToMainMenu() {
+    if (document.activeElement) document.activeElement.blur();
+    
+    // Hide pause overlay
+    document.getElementById('menu-pause').classList.remove('active');
+    
+    // Reset progression
+    exitNumber = 0;
+    gameState = 'menu';
+    updateHUD();
+    
+    // Rebuild lobby / normal hall
+    resetLevelState(0);
+    
+    // Show main start menu
+    document.getElementById('menu-start').classList.add('active');
 }
 
 function updateHUD() {
@@ -710,35 +741,50 @@ function createFireHydrantMesh() {
 }
 
 // Reset level coordinates and decide anomaly
-function resetLevelState(forcedExitNum = null) {
+function resetLevelState(forcedExitNum = null, forcedAnomalyId = null) {
+    isTransitioning = true; // Lock interactions during fade-in
+    
     if (forcedExitNum !== null) {
         exitNumber = forcedExitNum;
     }
     
     // Choose active anomaly
-    if (exitNumber === 0) {
-        activeAnomalyId = 0; // Exit 0 is ALWAYS normal
+    if (forcedAnomalyId !== null) {
+        activeAnomalyId = forcedAnomalyId;
     } else {
-        // 67% chance of anomaly
-        const isAnomaly = Math.random() < 0.67;
-        if (isAnomaly) {
-            // Select random anomaly from 1 to 67
-            activeAnomalyId = Math.floor(Math.random() * 67) + 1;
-            
-            // TEST INSTRUCTION: You can set a specific anomaly ID here for debugging
-            // activeAnomalyId = 8;
+        if (exitNumber === 0) {
+            activeAnomalyId = 0; // Exit 0 is ALWAYS normal
         } else {
-            activeAnomalyId = 0;
+            // 67% chance of anomaly
+            const isAnomaly = Math.random() < 0.67;
+            if (isAnomaly) {
+                // Select random anomaly from 1 to 67
+                activeAnomalyId = Math.floor(Math.random() * 67) + 1;
+            } else {
+                activeAnomalyId = 0;
+            }
         }
     }
 
     console.log(`Exit: ${exitNumber}. Active Anomaly ID: ${activeAnomalyId}`);
     
-    // Re-generate geometry/scene map
-    generateScene();
-    
-    // Apply visual effects/hooks from anomaly system
-    AnomalySystem.apply(scene, activeAnomalyId, elements, exitNumber);
+    try {
+        // Re-generate geometry/scene map
+        generateScene();
+        
+        // Apply visual effects/hooks from anomaly system
+        AnomalySystem.apply(scene, activeAnomalyId, elements, exitNumber);
+    } catch (error) {
+        console.error("Critical error during resetLevelState:", error);
+        // Fallback to normal corridor (anomaly ID 0) to avoid crash/black screen
+        activeAnomalyId = 0;
+        try {
+            generateScene();
+            AnomalySystem.clear(scene, elements, exitNumber);
+        } catch (innerError) {
+            console.error("Failed to recover to normal corridor:", innerError);
+        }
+    }
     
     // Reset player position near the yes anomaly door (Z = 0)
     playerPos.set(0, 0, -1.2);
@@ -760,6 +806,7 @@ function resetLevelState(forcedExitNum = null) {
             overlay.classList.remove('active');
             overlay.style.opacity = 0;
             overlay.style.background = ''; // reset for gameover
+            isTransitioning = false; // Reset transitioning flag
         } else {
             overlay.style.opacity = fadeVal;
         }
@@ -770,6 +817,8 @@ function resetLevelState(forcedExitNum = null) {
 
 // User clicked front door ("no anomaly" door)
 function interactWithFrontDoor() {
+    if (isTransitioning) return;
+    isTransitioning = true;
     const hasAnomaly = (activeAnomalyId !== 0);
     
     // Transition fade out
@@ -796,6 +845,8 @@ function interactWithFrontDoor() {
 
 // User clicked back door ("yes anomaly" door)
 function interactWithBackDoor() {
+    if (isTransitioning) return;
+    isTransitioning = true;
     const hasAnomaly = (activeAnomalyId !== 0);
 
     fadeOutScreenAndTrigger(() => {
@@ -825,7 +876,14 @@ function fadeOutScreenAndTrigger(callback) {
         overlay.style.opacity = fadeVal;
         if (fadeVal >= 1.0) {
             clearInterval(fadeTimer);
-            callback();
+            try {
+                callback();
+            } catch (error) {
+                console.error("Critical error during fade-out transition callback:", error);
+                isTransitioning = false;
+                overlay.classList.remove('active');
+                overlay.style.opacity = 0;
+            }
         }
     }, 25);
 }
@@ -1123,6 +1181,113 @@ function animate(currentTime) {
     AnomalySystem.update(elements, playerPos, isMoving, isRunning, deltaTime, triggerGameOver);
 
     renderer.render(scene, camera);
+}
+
+const ANOMALY_NAMES = [
+    "뒤돌아보지 마세요",
+    "포스터 뒤집힘",
+    "붉은 손자국 포스터",
+    "식당 폐점",
+    "작아지는 포스터",
+    "추락하는 여행 포스터",
+    "좌우로 흔들리는 포스터",
+    "새파란 손자국 추격",
+    "거대해지는 첫째 문",
+    "커진 문들",
+    "두드리는 문",
+    "축소된 셋째 문",
+    "내려오는 천장",
+    "그림자 추격자",
+    "167m 복도 & 67개 문",
+    "음수 표시판",
+    "444 표시판",
+    "깜빡이는 표시판",
+    "출구 없음 표시판",
+    "뒤집힌 표시판",
+    "사라진 표시판",
+    "핑크색 소화전",
+    "거대 소화전",
+    "소화전 누수",
+    "사라진 소화전",
+    "공중부양 소화전",
+    "색상 반전 미술 포스터",
+    "액자 속 복도",
+    "비명 지르는 졸라맨",
+    "백지 포스터",
+    "설산 여행 포스터",
+    "거울 포스터",
+    "곤충 요리 포스터",
+    "매진 낙서 포스터",
+    "SOS 깜빡임",
+    "노란 던전 조명",
+    "양방향 손잡이",
+    "열린 문과 붉은 빛",
+    "회전하는 손잡이",
+    "암흑 유리창",
+    "이끼 낀 벽",
+    "기울어진 복도",
+    "벽돌이 된 문",
+    "붉은 액체가 떨어진 마룻바닥",
+    "친절한 화살표",
+    "천장과 바닥의 반전",
+    "천장 환풍기",
+    "바닥 균열",
+    "레트로 카페트",
+    "끝없는 낭떠러지",
+    "구두 발자국 소리",
+    "방전된 손전등",
+    "네온 초록 손전등",
+    "괘종시계 소리",
+    "속삭이는 벽",
+    "빗소리와 천둥",
+    "끈적한 걸음",
+    "초중력",
+    "스트로보 조명",
+    "외계어 포스터",
+    "글리치 간판",
+    "유령 바람",
+    "뒤집힌 소화전",
+    "거대 안내 텍스트",
+    "첨벙거리는 발걸음",
+    "쌍둥이 소화전",
+    "적색경보"
+];
+
+function populateAnomalyList() {
+    const grid = document.querySelector('.anomalies-grid');
+    if (!grid) return;
+    
+    grid.innerHTML = '';
+    ANOMALY_NAMES.forEach((name, idx) => {
+        const id = idx + 1;
+        const btn = document.createElement('button');
+        btn.className = 'anomaly-item-btn';
+        btn.innerHTML = `
+            <span class="anomaly-num">${id}</span>
+            <span class="anomaly-name">${name}</span>
+        `;
+        btn.addEventListener('click', () => {
+            selectAnomalyFromList(id);
+        });
+        grid.appendChild(btn);
+    });
+}
+
+function selectAnomalyFromList(anomalyId) {
+    if (document.activeElement) document.activeElement.blur();
+    
+    // Initialize procedural audio context
+    window.gameAudio.init();
+    
+    // Hide anomaly menu
+    document.getElementById('menu-anomalies').classList.remove('active');
+    
+    // Set state
+    gameState = 'playing';
+    document.getElementById('canvas-container').requestPointerLock();
+    
+    // Force reset to this specific anomaly and display its number on Exit sign
+    resetLevelState(anomalyId, anomalyId);
 }
 
 // Bootstrap window load

@@ -731,6 +731,10 @@ const AnomalySystem = {
 
         console.log(`Applying anomaly: #${id}`);
 
+        if (id === 15) {
+            this.corridor167mBrightened = false;
+        }
+
         switch(id) {
             case 1: // 뒤돌아보지 마세요
                 if (elements.doorFrontTextMaterial) {
@@ -1334,6 +1338,19 @@ const AnomalySystem = {
         
         if (this.activeId === 0) return;
 
+        // 15. 167m 복도 조명 밝기 제어 (Z <= -145.0 도달 시 0.5 -> 0.7 영구 유지)
+        if (this.activeId === 15) {
+            if (!this.corridor167mBrightened && playerPos.z <= -145.0) {
+                this.corridor167mBrightened = true;
+            }
+            const targetIntensity = this.corridor167mBrightened ? 0.7 : 0.5;
+            if (elements.lights) {
+                elements.lights.forEach(light => {
+                    light.intensity = targetIntensity;
+                });
+            }
+        }
+
         // 5. 거대 포스터 -> 접근 시 원래 크기 복귀
         if (this.activeId === 5) {
             if (playerPos.z < -2.5 || elements.postersShrinkingStarted) {
@@ -1638,7 +1655,10 @@ const AnomalySystem = {
         // 62. 유령 바람 (포스터 펄럭펄럭)
         if (this.activeId === 62 && elements.postersFlapping) {
             elements.posters.forEach((p, idx) => {
-                p.rotation.y = Math.PI / 2 + Math.sin(this.time * 8 + idx) * 0.08;
+                const theta = 0.04 + Math.sin(this.time * 10 + idx * 2) * 0.04;
+                p.position.x = -1.99 + Math.sin(theta) * 0.45;
+                p.position.z = (p.userData.originalZ + 0.45) - Math.cos(theta) * 0.45;
+                p.rotation.y = Math.PI / 2 + theta;
             });
         }
 
