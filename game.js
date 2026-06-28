@@ -292,6 +292,16 @@ function updateHUD() {
     document.getElementById('val-exit').innerText = exitNumber;
     document.getElementById('val-flashlight').innerText = flashlightOn ? "ON" : "OFF";
     document.getElementById('val-flashlight').style.color = flashlightOn ? "#00ffcc" : "#94a3b8";
+    
+    // exitNumber가 68번이면 HUD에서 출구 표시(hud-exit-card) 숨김
+    const exitCard = document.getElementById('hud-exit-card');
+    if (exitCard) {
+        if (exitNumber === 68) {
+            exitCard.style.display = 'none';
+        } else {
+            exitCard.style.display = 'flex';
+        }
+    }
 }
 
 // Visual layout generation
@@ -595,8 +605,8 @@ function generateScene() {
     elements.doorBackTextMaterial.map = new THREE.CanvasTexture(canvasBack);
     elements.doorBackTextMaterial.needsUpdate = true;
 
-    // If exit number is 67 and no anomaly is active, spawn the victory stairs mesh instead of front door!
-    if (exitNumber === 67 && activeAnomalyId === 0) {
+    // If exit number is 68 and no anomaly is active, spawn the victory stairs mesh instead of front door!
+    if (exitNumber === 68 && activeAnomalyId === 0) {
         if (elements.doorFront) {
             scene.remove(elements.doorFront);
             elements.doorFront = null;
@@ -604,6 +614,14 @@ function generateScene() {
         if (elements.doorFrontTextMesh) {
             scene.remove(elements.doorFrontTextMesh);
             elements.doorFrontTextMesh = null;
+        }
+        if (elements.doorBack) {
+            scene.remove(elements.doorBack);
+            elements.doorBack = null;
+        }
+        if (elements.doorBackTextMesh) {
+            scene.remove(elements.doorBackTextMesh);
+            elements.doorBackTextMesh = null;
         }
         
         // Spawn 3D stairs leading up
@@ -827,9 +845,9 @@ function interactWithFrontDoor() {
             // Correct choice!
             exitNumber++;
             window.gameAudio.playSuccess();
-            if (exitNumber >= 67) {
+            if (exitNumber >= 68) {
                 // Should show stairs next round, so we don't end immediately. 
-                // Reaching 67 shows the stairs, which they must walk up to trigger victory!
+                // Reaching 68 shows the stairs, which they must walk up to trigger victory!
                 resetLevelState();
             } else {
                 resetLevelState();
@@ -1073,7 +1091,7 @@ function animate(currentTime) {
     let minZ = -currentCorridorLength + 0.5;
     let maxZ = -0.5;
     
-    if (exitNumber === 67 && activeAnomalyId === 0) {
+    if (exitNumber === 68 && activeAnomalyId === 0) {
         // Let player walk further forward up the stairs
         minZ = -currentCorridorLength - 4.8;
     }
@@ -1083,7 +1101,7 @@ function animate(currentTime) {
     playerPos.z = THREE.MathUtils.clamp(playerPos.z, minZ, maxZ);
 
     // Stairs climbing height calculations
-    if (exitNumber === 67 && activeAnomalyId === 0 && playerPos.z < -currentCorridorLength) {
+    if (exitNumber === 68 && activeAnomalyId === 0 && playerPos.z < -currentCorridorLength) {
         // stairs range Z = [-currentCorridorLength, -currentCorridorLength - 4.8]
         const stairProgress = (playerPos.z - (-currentCorridorLength)) / -4.8; // 0 to 1
         playerPos.y = stairProgress * 2.4; // climb up 2.4m

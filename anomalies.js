@@ -659,6 +659,18 @@ const AnomalySystem = {
         ctx.fillStyle = bgGlow;
         ctx.fillRect(24, 24, 464, 208);
 
+        if (numberText === 68 || numberText === "68" || state === 'escape') {
+            ctx.shadowColor = textGlow;
+            ctx.shadowBlur = 25;
+            ctx.fillStyle = textGlow;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = 'bold 90px "Share Tech Mono", monospace';
+            ctx.fillText("Escape", 256, 128);
+            ctx.shadowBlur = 0;
+            return canvas;
+        }
+
         // Green neon lights
         ctx.shadowColor = textGlow;
         ctx.shadowBlur = state === 'flicker_off' ? 0 : 25;
