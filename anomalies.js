@@ -733,6 +733,9 @@ const AnomalySystem = {
 
         if (id === 15) {
             this.corridor167mBrightened = false;
+            if (scene && scene.fog) {
+                scene.fog.density = 0.008; // 복도가 길어졌으므로 포그 밀도를 낮추어 시야 확보
+            }
         }
 
         switch(id) {
@@ -1815,6 +1818,9 @@ const AnomalySystem = {
             }
         });
         scene.background = new THREE.Color(0x050508);
+        if (scene && scene.fog) {
+            scene.fog.density = 0.05; // 포그 밀도 복구
+        }
 
         // 38. Keyhole red light clean
         if (elements.keyholeRedLight) {
