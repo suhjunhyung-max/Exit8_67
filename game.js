@@ -346,14 +346,15 @@ function generateScene() {
     // 68번 방일 때 배경색과 포그를 흰색으로 설정하여 계단 부근의 어둠을 제거하고 밝게 만듦
     if (scene) {
         if (exitNumber === 68) {
-            scene.background = new THREE.Color(0xffffff);
+            // 화이트아웃(계단 윤곽 상실) 방지를 위해 약간 톤이 다운된 밝은 백회색 배경 적용
+            scene.background = new THREE.Color(0xf0f0f5);
             if (scene.fog) {
-                scene.fog.color.setHex(0xffffff);
-                scene.fog.density = 0.02; // 은은하고 밝은 흰색 안개
+                scene.fog.color.setHex(0xf0f0f5);
+                scene.fog.density = 0.005; // 안개 밀도를 매우 연하게 낮춰 30m 밖의 계단 입체감이 보이도록 시야 대폭 확장
             }
             
-            // 계단 주위의 어둠을 완전히 지우고 환하게 비추기 위해 강한 환경광 생성
-            const ambLight = new THREE.AmbientLight(0xffffff, 2.0);
+            // 계단 주위의 물리적 그림자 어둠을 지우고 입체감(질감)을 살릴 정도의 부드러운 환경광 생성
+            const ambLight = new THREE.AmbientLight(0xffffff, 0.7);
             scene.add(ambLight);
             elements.victoryAmbientLight = ambLight;
         } else {
