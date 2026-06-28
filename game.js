@@ -331,6 +331,23 @@ function generateScene() {
     elements.lights.forEach(l => scene.remove(l));
     elements.lights = [];
 
+    // 68번 방일 때 배경색과 포그를 흰색으로 설정하여 계단 부근의 어둠을 제거하고 밝게 만듦
+    if (scene) {
+        if (exitNumber === 68) {
+            scene.background = new THREE.Color(0xffffff);
+            if (scene.fog) {
+                scene.fog.color.setHex(0xffffff);
+                scene.fog.density = 0.02; // 은은하고 밝은 흰색 안개
+            }
+        } else {
+            scene.background = new THREE.Color(0x050508);
+            if (scene.fog) {
+                scene.fog.color.setHex(0x050508);
+                scene.fog.density = (activeAnomalyId === 15) ? 0.008 : 0.05;
+            }
+        }
+    }
+
     // Decide corridor dimensions
     const length = (activeAnomalyId === 15) ? 167 : 30;
     const width = 4;
@@ -448,8 +465,8 @@ function generateScene() {
     };
 
     buildWallAt(0, true); // Back Wall
-    if (activeAnomalyId !== 15) {
-        buildWallAt(-length, false); // Front Wall
+    if (activeAnomalyId !== 15 && exitNumber !== 68) {
+        buildWallAt(-length, false); // 68번 방일 때는 전방 벽을 없앰 (계단으로 통하도록 뚫음)
     }
 
     // Baseboard trim for aesthetic polish

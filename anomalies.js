@@ -1832,6 +1832,7 @@ const AnomalySystem = {
         scene.background = new THREE.Color(0x050508);
         if (scene && scene.fog) {
             scene.fog.density = 0.05; // 포그 밀도 복구
+            scene.fog.color.setHex(0x050508); // 포그 색상 복구
         }
 
         // 38. Keyhole red light clean
