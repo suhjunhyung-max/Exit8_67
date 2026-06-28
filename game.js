@@ -770,8 +770,8 @@ function resetLevelState(forcedExitNum = null, forcedAnomalyId = null) {
     if (forcedAnomalyId !== null) {
         activeAnomalyId = forcedAnomalyId;
     } else {
-        if (exitNumber === 0) {
-            activeAnomalyId = 0; // Exit 0 is ALWAYS normal
+        if (exitNumber === 0 || exitNumber >= 68) {
+            activeAnomalyId = 0; // Exit 0 and Exit 68+ are ALWAYS normal
         } else {
             // 67% chance of anomaly
             const isAnomaly = Math.random() < 0.67;
