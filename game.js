@@ -77,7 +77,8 @@ function loadNPCModel() {
         return;
     }
     const loader = new THREE.GLTFLoader();
-    loader.load('asset/char1.glb', (gltf) => {
+    // Vite 정적 리소스 서빙을 위해 루트 절대 경로 '/asset/char1.glb' 사용
+    loader.load('/asset/char1.glb', (gltf) => {
         npcModelTemplate = gltf.scene;
         npcAnimations = gltf.animations;
         
@@ -110,6 +111,18 @@ function spawnNPCCharacter() {
     }
     
     elements.npcCharacter = npcModelTemplate.clone();
+    
+    // 모델의 원래 제작 스케일이 비정상적인 경우를 대비해 Bounding Box 기반으로 
+    // 캐릭터 높이(키)를 인게임 사람 비율인 1.75m로 자동 정규화(Normalize)
+    const box = new THREE.Box3().setFromObject(elements.npcCharacter);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const currentHeight = size.y;
+    if (currentHeight > 0) {
+        const targetHeight = 1.75;
+        const scaleRatio = targetHeight / currentHeight;
+        elements.npcCharacter.scale.set(scaleRatio, scaleRatio, scaleRatio);
+    }
     
     // 복도 앞쪽 NO Anomaly 문 오른쪽
     const currentCorridorLength = (activeAnomalyId === 15) ? 167 : 30;
