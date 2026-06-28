@@ -670,13 +670,21 @@ function generateScene() {
         elements.stairsGroup = new THREE.Group();
         for (let i = 0; i < numSteps; i++) {
             const stepGeo = new THREE.BoxGeometry(stairW, stepHeight, stepDepth);
-            const stepMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.8 });
+            
+            // 조명과 안개에 의한 화이트아웃(가시성 소실)을 근절하기 위해 
+            // 그림자 연산이 배제되고 형태가 또렷하게 대비되는 MeshBasicMaterial과 회청색 그라데이션 적용
+            const baseVal = 70 + Math.floor((i / numSteps) * 50); // 아래(70)에서 위(120)로 갈수록 밝아짐
+            const stripeOffset = (i % 2 === 0) ? 12 : 0; // 계단 한 단 한 단이 뚜렷하게 구분되도록 패턴 음영 부여
+            const r = baseVal + stripeOffset;
+            const g = baseVal + 10 + stripeOffset;
+            const b = baseVal + 20 + stripeOffset;
+            const stepColor = new THREE.Color(`rgb(${r}, ${g}, ${b})`);
+            
+            const stepMat = new THREE.MeshBasicMaterial({ color: stepColor });
             const step = new THREE.Mesh(stepGeo, stepMat);
             
             // Stair steps coordinate starts at Z = -length and climbs up (further into negative Z)
             step.position.set(0, (i + 0.5) * stepHeight, -length - (i + 0.5) * stepDepth);
-            step.receiveShadow = true;
-            step.castShadow = true;
             elements.stairsGroup.add(step);
         }
         scene.add(elements.stairsGroup);
