@@ -1338,12 +1338,12 @@ const AnomalySystem = {
         
         if (this.activeId === 0) return;
 
-        // 15. 167m 복도 조명 밝기 제어 (Z <= -145.0 도달 시 0.5 -> 0.7 영구 유지)
+        // 15. 167m 복도 조명 밝기 제어 (Z <= -145.0 도달 시 0.2 -> 1.0 영구 유지)
         if (this.activeId === 15) {
             if (!this.corridor167mBrightened && playerPos.z <= -145.0) {
                 this.corridor167mBrightened = true;
             }
-            const targetIntensity = this.corridor167mBrightened ? 0.7 : 0.5;
+            const targetIntensity = this.corridor167mBrightened ? 1.0 : 0.2;
             if (elements.lights) {
                 elements.lights.forEach(light => {
                     light.intensity = targetIntensity;
