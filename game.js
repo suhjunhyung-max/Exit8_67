@@ -43,7 +43,8 @@ const elements = {
     lights: [],
     flashlight: null,
     flashlightOn: false,
-    victoryAmbientLight: null
+    victoryAmbientLight: null,
+    stairsGroup: null
 };
 
 // Start the game
@@ -331,6 +332,11 @@ function generateScene() {
     
     elements.lights.forEach(l => scene.remove(l));
     elements.lights = [];
+
+    if (elements.stairsGroup) {
+        scene.remove(elements.stairsGroup);
+        elements.stairsGroup = null;
+    }
 
     if (elements.victoryAmbientLight) {
         scene.remove(elements.victoryAmbientLight);

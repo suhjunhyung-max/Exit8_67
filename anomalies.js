@@ -1838,6 +1838,10 @@ const AnomalySystem = {
             scene.remove(elements.victoryAmbientLight);
             elements.victoryAmbientLight = null;
         }
+        if (elements.stairsGroup) {
+            scene.remove(elements.stairsGroup);
+            elements.stairsGroup = null;
+        }
 
         // 38. Keyhole red light clean
         if (elements.keyholeRedLight) {
