@@ -77,8 +77,9 @@ function loadNPCModel() {
         return;
     }
     const loader = new THREE.GLTFLoader();
-    // Vite 정적 리소스 서빙을 위해 루트 절대 경로 '/asset/char1.glb' 사용
-    loader.load('/asset/char1.glb', (gltf) => {
+    // Vite base 경로(/Exit8_67/)를 반영하도록 문서 기준 상대 경로 사용.
+    // 절대 경로 '/asset/...'는 base 접두사가 빠져 GitHub Pages·로컬 모두에서 404가 난다.
+    loader.load(import.meta.env.BASE_URL + 'asset/char1.glb', (gltf) => {
         npcModelTemplate = gltf.scene;
         npcAnimations = gltf.animations;
         
